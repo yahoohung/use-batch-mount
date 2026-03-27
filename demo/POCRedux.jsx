@@ -1,20 +1,29 @@
-import React from 'react';
-import { useSelector } from 'react-redux';
+import React, { useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import {
   selectMarketZoneById,
   selectSectorRowsByMarketZoneId,
   selectSectorRowById,
   selectTerritoryCellsBySectorRowId,
   selectTerritoryCellById,
+  updateRandomValue,
+  selectLastUpdatedCellId,
+  selectLastUpdatedType,
+  selectLastUpdatedSegmentId,
 } from './marketSlice.js';
 
 // SegmentCell component
 const SegmentCell = ({ segmentId, cellId }) => {
   const cell = useSelector(state => selectTerritoryCellById(state, cellId));
+  const lastUpdatedCellId = useSelector(selectLastUpdatedCellId);
+  const lastUpdatedType = useSelector(selectLastUpdatedType);
+  const lastUpdatedSegmentId = useSelector(selectLastUpdatedSegmentId);
+
   const segment = cell?.segments.find(s => s.id === segmentId);
+  const isHighlighted = lastUpdatedCellId === cellId && lastUpdatedType === 'segment' && lastUpdatedSegmentId === segmentId;
 
   return (
-    <div className="segment-cell">
+    <div className={`segment-cell ${isHighlighted ? 'highlight' : ''}`}>
       <span>{segment ? segment.value.toFixed(2) : 'N/A'}</span>
     </div>
   );
@@ -39,9 +48,13 @@ const SegmentBreakdown = ({ cellId }) => {
 // RatioDisplay component
 const RatioDisplay = ({ cellId }) => {
   const cell = useSelector(state => selectTerritoryCellById(state, cellId));
+  const lastUpdatedCellId = useSelector(selectLastUpdatedCellId);
+  const lastUpdatedType = useSelector(selectLastUpdatedType);
+
+  const isHighlighted = lastUpdatedCellId === cellId && lastUpdatedType === 'ratio';
 
   return (
-    <div className="ratio-display">
+    <div className={`ratio-display ${isHighlighted ? 'highlight' : ''}`}>
       <span>Ratio: {cell ? cell.ratio.toFixed(2) : 'N/A'}</span>
     </div>
   );
@@ -50,9 +63,13 @@ const RatioDisplay = ({ cellId }) => {
 // ExposureDisplay component
 const ExposureDisplay = ({ cellId }) => {
   const cell = useSelector(state => selectTerritoryCellById(state, cellId));
+  const lastUpdatedCellId = useSelector(selectLastUpdatedCellId);
+  const lastUpdatedType = useSelector(selectLastUpdatedType);
+
+  const isHighlighted = lastUpdatedCellId === cellId && lastUpdatedType === 'exposure';
 
   return (
-    <div className="exposure-display">
+    <div className={`exposure-display ${isHighlighted ? 'highlight' : ''}`}>
       <span>Exposure: {cell ? cell.exposure.toFixed(2) : 'N/A'}</span>
     </div>
   );
@@ -107,7 +124,7 @@ const MarketZone = ({ marketZoneId }) => {
 const LeftPanel = ({ marketZoneIds }) => (
   <div className="panel left-panel">
     <h2>Left Panel</h2>
-    {marketZoneIds.slice(0, 8).map(id => (
+    {marketZoneIds.map(id => (
       <MarketZone key={id} marketZoneId={id} />
     ))}
   </div>
@@ -116,7 +133,7 @@ const LeftPanel = ({ marketZoneIds }) => (
 const CenterPanel = ({ marketZoneIds }) => (
   <div className="panel center-panel">
     <h2>Center Panel</h2>
-    {marketZoneIds.slice(8, 17).map(id => (
+    {marketZoneIds.map(id => (
       <MarketZone key={id} marketZoneId={id} />
     ))}
   </div>
@@ -125,7 +142,7 @@ const CenterPanel = ({ marketZoneIds }) => (
 const RightPanel = ({ marketZoneIds }) => (
   <div className="panel right-panel">
     <h2>Right Panel</h2>
-    {marketZoneIds.slice(17).map(id => (
+    {marketZoneIds.map(id => (
       <MarketZone key={id} marketZoneId={id} />
     ))}
   </div>
@@ -133,8 +150,17 @@ const RightPanel = ({ marketZoneIds }) => (
 
 // Main POC component
 const POCRedux = () => {
+  const dispatch = useDispatch();
   const marketZones = useSelector(state => state.market.marketZones);
   const marketZoneIds = marketZones.map(mz => mz.id);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      dispatch(updateRandomValue());
+    }, 500); // Update every 500ms (half second)
+
+    return () => clearInterval(interval);
+  }, [dispatch]);
 
   return (
     <div className="poc-redux">

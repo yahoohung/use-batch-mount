@@ -55,15 +55,51 @@ const generateMarketData = () => {
 
 const initialState = {
   marketZones: generateMarketData(),
+  lastUpdatedCellId: null,
+  lastUpdatedType: null, // 'ratio', 'exposure', or 'segment'
+  lastUpdatedSegmentId: null,
 };
 
 const marketSlice = createSlice({
   name: 'market',
   initialState,
   reducers: {
-    // Add reducers if needed
+    updateRandomValue: (state) => {
+      // Randomly select a cell to update
+      const allCells = [];
+      state.marketZones.forEach(mz => {
+        mz.sectorRows.forEach(sr => {
+          sr.territoryCells.forEach(cell => {
+            allCells.push(cell);
+          });
+        });
+      });
+
+      if (allCells.length > 0) {
+        const randomCell = allCells[Math.floor(Math.random() * allCells.length)];
+        const updateType = Math.floor(Math.random() * 3); // 0: ratio, 1: exposure, 2: segment
+
+        if (updateType === 0) {
+          randomCell.ratio = Math.random() * 100;
+          state.lastUpdatedCellId = randomCell.id;
+          state.lastUpdatedType = 'ratio';
+        } else if (updateType === 1) {
+          randomCell.exposure = Math.random() * 1000;
+          state.lastUpdatedCellId = randomCell.id;
+          state.lastUpdatedType = 'exposure';
+        } else {
+          const randomSegment = randomCell.segments[Math.floor(Math.random() * randomCell.segments.length)];
+          randomSegment.value = Math.random() * 50;
+          state.lastUpdatedCellId = randomCell.id;
+          state.lastUpdatedType = 'segment';
+          state.lastUpdatedSegmentId = randomSegment.id;
+        }
+      }
+    },
   },
 });
+
+export const { updateRandomValue } = marketSlice.actions;
 
 export default marketSlice.reducer;
 
@@ -91,3 +127,6 @@ export const selectTerritoryCellById = (state, cellId) => {
   }
   return null;
 };
+export const selectLastUpdatedCellId = (state) => state.market.lastUpdatedCellId;
+export const selectLastUpdatedType = (state) => state.market.lastUpdatedType;
+export const selectLastUpdatedSegmentId = (state) => state.market.lastUpdatedSegmentId;
