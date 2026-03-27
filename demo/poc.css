@@ -1,4 +1,4 @@
-.poc-container {
+.poc-redux {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -7,45 +7,101 @@
   overflow: hidden;
 }
 
-.poc-header {
-  padding: 1.5rem;
+.poc-redux h1 {
+  padding: 1rem;
   background: rgba(22, 27, 34, 0.8);
   border-bottom: 1px solid rgba(255,255,255,0.1);
   text-align: center;
+  margin: 0;
 }
 
-.poc-header h1 {
-  font-size: 1.8rem;
-  margin-bottom: 0.5rem;
-}
-
-.reload-btn {
-  margin-top: 1rem;
-  background: #238636;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-weight: bold;
-  cursor: pointer;
-}
-.reload-btn:hover { background: #2ea043; }
-
-.split-view {
+.panels {
   display: flex;
   flex: 1;
   overflow: hidden;
 }
 
-.data-panel {
+.panel {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   padding: 1rem;
+  overflow-y: auto;
   border-right: 1px solid rgba(255,255,255,0.1);
 }
-.data-panel:last-child {
+
+.panel:last-child {
   border-right: none;
+}
+
+.panel h2 {
+  margin-top: 0;
+  color: #58a6ff;
+}
+
+.market-zone {
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(22, 27, 34, 0.5);
+  border-radius: 8px;
+}
+
+.market-zone h3 {
+  margin-top: 0;
+  color: #f85149;
+}
+
+.sector-row {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: rgba(33, 38, 45, 0.5);
+  border-radius: 6px;
+}
+
+.sector-row h4 {
+  margin-top: 0;
+  color: #d29922;
+}
+
+.cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.territory-cell {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.5rem;
+  background: rgba(48, 54, 61, 0.5);
+  border-radius: 4px;
+}
+
+.ratio-display, .exposure-display {
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.segment-breakdown {
+  margin-top: 0.5rem;
+}
+
+.segment-breakdown h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #238636;
+}
+
+.segments {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.segment-cell {
+  flex: 1;
+  padding: 0.25rem;
+  background: rgba(56, 139, 253, 0.1);
+  border-radius: 3px;
+  text-align: center;
+  font-size: 0.8rem;
 }
 
 .panel-title {
