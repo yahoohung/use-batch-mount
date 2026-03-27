@@ -15,6 +15,243 @@
   margin: 0;
 }
 
+.settings-panel {
+  background: rgba(22, 27, 34, 0.9);
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  padding: 1rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.settings-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings-row label {
+  min-width: 120px;
+  font-weight: bold;
+  color: #58a6ff;
+}
+
+.settings-row input {
+  flex: 1;
+  padding: 0.5rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  color: #e6edf3;
+  font-size: 0.9rem;
+}
+
+.settings-row input:focus {
+  outline: none;
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.settings-row .hint {
+  min-width: 50px;
+  text-align: right;
+  color: #8b949e;
+  font-size: 0.85rem;
+}
+
+.settings-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.settings-buttons button {
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.settings-buttons .apply-btn {
+  background: #238636;
+  color: white;
+}
+
+.settings-buttons .apply-btn:hover {
+  background: #2ea043;
+}
+
+.settings-buttons .cancel-btn {
+  background: rgba(130, 80, 223, 0.3);
+  color: #d2a8ff;
+}
+
+.settings-buttons .cancel-btn:hover {
+  background: rgba(130, 80, 223, 0.5);
+}
+
+.controls {
+  padding: 1rem;
+  background: rgba(22, 27, 34, 0.8);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.controls button {
+  padding: 0.5rem 1rem;
+  background: rgba(56, 139, 253, 0.2);
+  color: #58a6ff;
+  border: 1px solid #58a6ff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.controls button:hover {
+  background: rgba(56, 139, 253, 0.3);
+}
+
+.controls button.active {
+  background: #58a6ff;
+  color: #0d1117;
+}
+
+.benchmark-runner {
+  background: rgba(22, 27, 34, 0.8);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding: 1rem;
+}
+
+.benchmark-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.benchmark-header h3 {
+  margin: 0;
+  color: #58a6ff;
+}
+
+.benchmark-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.benchmark-controls button {
+  padding: 0.5rem 1rem;
+  background: rgba(44, 187, 92, 0.3);
+  color: #2cbb5c;
+  border: 1px solid #2cbb5c;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.benchmark-controls button:hover:not(.disabled) {
+  background: rgba(44, 187, 92, 0.5);
+}
+
+.benchmark-controls button.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.current-test {
+  color: #d29922;
+  font-style: italic;
+}
+
+.benchmark-results {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(48, 54, 61, 0.5);
+  border-radius: 8px;
+}
+
+.results-table {
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.results-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.results-table th {
+  background: rgba(56, 139, 253, 0.2);
+  color: #58a6ff;
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.results-table td {
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  color: #e6edf3;
+}
+
+.results-table tr:hover {
+  background: rgba(56, 139, 253, 0.1);
+}
+
+.comparison {
+  background: rgba(22, 27, 34, 0.5);
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.comparison h4 {
+  margin: 0 0 0.5rem 0;
+  color: #f85149;
+}
+
+.comparison-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: rgba(48, 54, 61, 0.5);
+  border-radius: 4px;
+}
+
+.comparison-item .value {
+  font-weight: bold;
+  color: #2cbb5c;
+}
+
+.download-btn {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(56, 139, 253, 0.3);
+  color: #58a6ff;
+  border: 1px solid #58a6ff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.download-btn:hover {
+  background: rgba(56, 139, 253, 0.5);
+}
+
 .panels {
   display: flex;
   flex: 1;
@@ -37,16 +274,23 @@
   color: #58a6ff;
 }
 
-.market-zone {
+.market-zone.skeleton {
   margin-bottom: 2rem;
   padding: 1rem;
-  background: rgba(22, 27, 34, 0.5);
+  background: rgba(22, 27, 34, 0.3);
   border-radius: 8px;
+  border: 2px dashed rgba(255,255,255,0.2);
 }
 
-.market-zone h3 {
-  margin-top: 0;
-  color: #f85149;
+.skeleton-header {
+  height: 2rem;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.5);
+  font-style: italic;
 }
 
 .sector-row {
@@ -69,15 +313,10 @@
 
 .territory-cell {
   flex: 1;
-  min-width: 200px;
+  min-width: 300px;
   padding: 0.5rem;
   background: rgba(48, 54, 61, 0.5);
   border-radius: 4px;
-}
-
-.ratio-display, .exposure-display {
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
 }
 
 .segment-breakdown {
@@ -92,7 +331,8 @@
 
 .segments {
   display: flex;
-  gap: 0.25rem;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .segment-cell {
@@ -102,6 +342,78 @@
   border-radius: 3px;
   text-align: center;
   font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.segment-value {
+  font-weight: bold;
+}
+
+.segment-numbers {
+  margin: 0.25rem 0;
+}
+
+.numbers-array {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
+.number-item {
+  background: rgba(255, 255, 0, 0.2);
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: #d29922;
+  min-width: 1.2rem;
+  text-align: center;
+}
+
+.numbers-sum {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #238636;
+}
+
+.segment-form {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.segment-form input {
+  flex: 1;
+  padding: 0.2rem;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 2px;
+  background: rgba(255,255,255,0.1);
+  color: #e6edf3;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.segment-form input:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
+.segment-form input.dirty {
+  border-color: #f85149;
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.form-status {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  opacity: 0.7;
+}
+
+.form-status small {
+  color: #8b949e;
 }
 
 .highlight {

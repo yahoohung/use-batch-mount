@@ -1,22 +1,24 @@
 import { createSlice } from '@reduxjs/toolkit';
 
-// Generate mock data
-const generateMarketData = () => {
+// Generate mock data with configurable totals
+const generateMarketData = (numMarketZones = 25, numSectorRows = 110, numSegmentCells = 298, numSegmentsPerCell = 5) => {
   const marketZones = [];
   let sectorRowId = 1;
   let cellId = 1;
 
-  for (let mz = 1; mz <= 25; mz++) {
+  for (let mz = 1; mz <= numMarketZones; mz++) {
     const marketZone = {
       id: `marketzone-${mz}`,
       name: `Market Zone ${mz}`,
       sectorRows: [],
     };
 
-    // Distribute sector rows to reach ~110 total
-    const numSectorRows = Math.floor(110 / 25) + (mz <= 110 % 25 ? 1 : 0); // 4-5 per zone
+    // Distribute sector rows evenly across zones
+    const numSectorRowsPerZone = Math.floor(numSectorRows / numMarketZones);
+    const extraRows = mz <= numSectorRows % numMarketZones ? 1 : 0;
+    const targetSectorRows = numSectorRowsPerZone + extraRows;
 
-    for (let sr = 0; sr < numSectorRows && sectorRowId <= 110; sr++) {
+    for (let sr = 0; sr < targetSectorRows && sectorRowId <= numSectorRows; sr++) {
       const sectorRow = {
         id: `sectorrow-${sectorRowId}`,
         name: `Sector Row ${sectorRowId}`,
@@ -24,17 +26,19 @@ const generateMarketData = () => {
         territoryCells: [],
       };
 
-      // Distribute cells to reach ~298 total
-      const numCells = Math.floor(298 / 110) + (sectorRowId <= 298 % 110 ? 1 : 0); // 2-3 per row
+      // Distribute cells evenly across rows
+      const numCellsPerRow = Math.floor(numSegmentCells / numSectorRows);
+      const extraCells = sectorRowId <= numSegmentCells % numSectorRows ? 1 : 0;
+      const targetCells = numCellsPerRow + extraCells;
 
-      for (let c = 0; c < numCells && cellId <= 298; c++) {
+      for (let c = 0; c < targetCells && cellId <= numSegmentCells; c++) {
         const cell = {
           id: `cell-${cellId}`,
           name: `Territory Cell ${cellId}`,
           sectorRowId: sectorRow.id,
           ratio: Math.random() * 100,
           exposure: Math.random() * 1000,
-          segments: Array.from({ length: 5 }, (_, i) => ({
+          segments: Array.from({ length: numSegmentsPerCell }, (_, i) => ({
             id: `segment-${cellId}-${i + 1}`,
             value: Math.random() * 50,
           })),
@@ -58,6 +62,12 @@ const initialState = {
   lastUpdatedCellId: null,
   lastUpdatedType: null, // 'ratio', 'exposure', or 'segment'
   lastUpdatedSegmentId: null,
+  config: {
+    numMarketZones: 25,
+    numSectorRows: 110,
+    numSegmentCells: 298,
+    numSegmentsPerCell: 5,
+  },
 };
 
 const marketSlice = createSlice({
@@ -96,10 +106,23 @@ const marketSlice = createSlice({
         }
       }
     },
+    updateDataConfig: (state, action) => {
+      const { numMarketZones, numSectorRows, numSegmentCells, numSegmentsPerCell } = action.payload;
+      state.config = {
+        numMarketZones,
+        numSectorRows,
+        numSegmentCells,
+        numSegmentsPerCell,
+      };
+      state.marketZones = generateMarketData(numMarketZones, numSectorRows, numSegmentCells, numSegmentsPerCell);
+      state.lastUpdatedCellId = null;
+      state.lastUpdatedType = null;
+      state.lastUpdatedSegmentId = null;
+    },
   },
 });
 
-export const { updateRandomValue } = marketSlice.actions;
+export const { updateRandomValue, updateDataConfig } = marketSlice.actions;
 
 export default marketSlice.reducer;
 
@@ -130,3 +153,4 @@ export const selectTerritoryCellById = (state, cellId) => {
 export const selectLastUpdatedCellId = (state) => state.market.lastUpdatedCellId;
 export const selectLastUpdatedType = (state) => state.market.lastUpdatedType;
 export const selectLastUpdatedSegmentId = (state) => state.market.lastUpdatedSegmentId;
+export const selectDataConfig = (state) => state.market.config;
