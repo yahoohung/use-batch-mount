@@ -3,6 +3,7 @@ node_modules/
 
 # Production Build
 dist/
+demo-dist/
 
 # OS Files
 .DS_Store
