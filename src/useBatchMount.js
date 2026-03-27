@@ -95,8 +95,12 @@ export function useBatchMount(ids, { initialBatch = 8, batchSize = 6 } = {}) {
             // Always retrieve the latest batchSize per tick, avoiding stale closures.
             const { batchSize: bs } = configRef.current
 
+            // We force at least 1 batch to execute to prevent zero-throughput stalls when timeRemaining is low.
+            let forceOnce = true;
+
             // Mount as many as possible within the deadline, 'batchSize' elements at a time.
-            while (state.queue.length && deadline.timeRemaining() > 4) {
+            while (state.queue.length && (deadline.timeRemaining() > 4 || forceOnce)) {
+                forceOnce = false;
                 state.queue
                     .splice(0, bs)
                     .forEach(id => { state.mounted.add(id); changed = true })
@@ -147,8 +151,12 @@ export function useBatchMount(ids, { initialBatch = 8, batchSize = 6 } = {}) {
         }
 
         if (added.length) {
-            // Addition: Push to queue, wait for idle callbacks to mount in batches.
+            // Addition: Push to queue
             state.queue.push(...added)
+        }
+
+        // Resume queue processing if it got stalled (e.g. by React 18 StrictMode unmount/remount cancellation)
+        if (state.queue.length && !state.icId) {
             flushRef.current()
         }
 
@@ -162,7 +170,10 @@ export function useBatchMount(ids, { initialBatch = 8, batchSize = 6 } = {}) {
     // ── Cleanup ─────────────────────────────────────────────────────────────
     useEffect(() => {
         return () => {
-            if (s.current.icId) cIC(s.current.icId)
+            if (s.current.icId) {
+                cIC(s.current.icId)
+                s.current.icId = null
+            }
         }
     }, [])
 
