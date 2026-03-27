@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { store } from './store.js';
 import {
   selectMarketZoneById,
   selectSectorRowsByMarketZoneId,
@@ -21,6 +22,13 @@ const SegmentCell = ({ segmentId, cellId }) => {
 
   const segment = cell?.segments.find(s => s.id === segmentId);
   const isHighlighted = lastUpdatedCellId === cellId && lastUpdatedType === 'segment' && lastUpdatedSegmentId === segmentId;
+
+  // Debug: Log highlight status
+  useEffect(() => {
+    if (isHighlighted) {
+      console.log(`SegmentCell ${segmentId} in cell ${cellId} is highlighted!`);
+    }
+  }, [isHighlighted, segmentId, cellId]);
 
   return (
     <div className={`segment-cell ${isHighlighted ? 'highlight' : ''}`}>
@@ -53,6 +61,13 @@ const RatioDisplay = ({ cellId }) => {
 
   const isHighlighted = lastUpdatedCellId === cellId && lastUpdatedType === 'ratio';
 
+  // Debug: Log highlight status
+  useEffect(() => {
+    if (isHighlighted) {
+      console.log(`RatioDisplay ${cellId} is highlighted!`);
+    }
+  }, [isHighlighted, cellId]);
+
   return (
     <div className={`ratio-display ${isHighlighted ? 'highlight' : ''}`}>
       <span>Ratio: {cell ? cell.ratio.toFixed(2) : 'N/A'}</span>
@@ -67,6 +82,13 @@ const ExposureDisplay = ({ cellId }) => {
   const lastUpdatedType = useSelector(selectLastUpdatedType);
 
   const isHighlighted = lastUpdatedCellId === cellId && lastUpdatedType === 'exposure';
+
+  // Debug: Log highlight status
+  useEffect(() => {
+    if (isHighlighted) {
+      console.log(`ExposureDisplay ${cellId} is highlighted!`);
+    }
+  }, [isHighlighted, cellId]);
 
   return (
     <div className={`exposure-display ${isHighlighted ? 'highlight' : ''}`}>
@@ -157,6 +179,15 @@ const POCRedux = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       dispatch(updateRandomValue());
+      // Debug: Log current state after update
+      setTimeout(() => {
+        const state = store.getState();
+        console.log('Last updated:', {
+          cellId: state.market.lastUpdatedCellId,
+          type: state.market.lastUpdatedType,
+          segmentId: state.market.lastUpdatedSegmentId
+        });
+      }, 10);
     }, 500); // Update every 500ms (half second)
 
     return () => clearInterval(interval);
