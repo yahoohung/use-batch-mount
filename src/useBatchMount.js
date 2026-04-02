@@ -143,15 +143,14 @@ function _threshold() {
 }
 
 /**
- * Locks the threshold to a fixed value. Called from the diff effect each
- * time `ids` changes when the caller passes minIdleMs > 0. The call is
- * idempotent when the value has not changed. Keeping this function separate
- * from _enqueue ensures no instance accidentally mutates the global
- * threshold as a side-effect of enqueueing.
+ * Sets or clears the fixed threshold override.
+ * When ms > 0, locks the threshold to that value and disables adaptation.
+ * When ms === 0, clears the override and hands control back to the adaptive
+ * algorithm. Called from the diff effect each time `ids` changes.
  * @param {number} ms
  */
 function _setMinIdleMs(ms) {
-    if (ms > 0) _fixed = ms
+    _fixed = ms > 0 ? ms : 0
 }
 
 // ── Core flush loop ────────────────────────────────────────────────────────
@@ -437,9 +436,9 @@ export function useBatchMount(ids, {
         const { initialBatch: ib, minIdleMs: ms } = configRef.current
         const nextSet = new Set(ids)
 
-        // Set the fixed threshold here (in an effect), not during render, to
-        // keep the render phase free of module-level side-effects.
-        if (ms > 0) _setMinIdleMs(ms)
+        // Set or clear the fixed threshold here (in an effect), not during
+        // render, to keep the render phase free of module-level side-effects.
+        _setMinIdleMs(ms)
 
         if (!state.ready) {
             // First run: mount the first ib IDs synchronously so the user sees
@@ -485,12 +484,23 @@ export function useBatchMount(ids, {
         // then remounted; capturing here means the cleanup always refers to the
         // same object regardless of when it runs.
         const state = s.current
+
+        // Reset alive on every (re)mount. StrictMode tears down and remounts
+        // effects in development; without this, alive stays false after the
+        // first teardown and all subsequent onMount callbacks short-circuit.
+        state.alive = true
+
         return () => {
             state.alive = false
             // Only dequeue IDs that are still waiting in the scheduler. IDs
             // already in state.mounted have been processed and are not queued.
             const pending = [...state.prevSet].filter(id => !state.mounted.has(id))
             if (pending.length) _dequeue(pending)
+            // Reset instance state so the diff effect's first-run path fires
+            // again on remount (handles StrictMode double-invoke in development).
+            state.ready = false
+            state.mounted.clear()
+            state.prevSet.clear()
         }
     }, [])
 
