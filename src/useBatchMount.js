@@ -58,7 +58,7 @@ const rIC =
 const WARMUP_MS = 4
 
 /** Number of post-mount idle samples to collect before the threshold adapts. */
-const SAMPLE_SIZE = 20
+export const SAMPLE_SIZE = 20
 
 /**
  * The adaptive threshold is set to this fraction of the average post-mount

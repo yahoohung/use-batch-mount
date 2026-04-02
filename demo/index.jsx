@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
-import { useBatchMount, __batchMountDebug } from '../src/useBatchMount.js';
+import { useBatchMount, __batchMountDebug, SAMPLE_SIZE } from '../src/useBatchMount.js';
 
 // ══════════════════════════════════════════════════════════════════════════
 //  DEMO COMPONENTS
@@ -67,6 +67,32 @@ function _genStore(n) {
 let _store = null;
 function _gs(n) { if (!_store || _store.data.listPool.length !== n) _store = _genStore(n); return _store; }
 
+function _updateStore(n, pct) {
+  if (!_store) return;
+  const count = Math.ceil(n * pct);
+  const indices = new Set();
+  while (indices.size < count) {
+    indices.add(Math.floor(Math.random() * n));
+  }
+  indices.forEach(idx => {
+    const p = _store.data.listPool[idx];
+    if (!p) return;
+    p.metadata.version++;
+    p.metadata.lastUpdate = Date.now();
+    p.lines.forEach(l => {
+      l.selections.forEach(s => {
+        s.prevOdds = s.odds;
+        s.odds = +(1.01 + Math.random() * 15).toFixed(2);
+        s.position += Math.round((Math.random() - .5) * 5000);
+        s.clientGroups.forEach(cg => {
+          cg.exposure += Math.round((Math.random() - .5) * 2000);
+          cg.count += Math.floor(Math.random() * 5);
+        });
+      });
+    });
+  });
+}
+
 // ── 8 BAD SELECTORS — every one walks the tree, returns new refs ──────
 
 function useSel_pool(idx, n) {
@@ -120,7 +146,7 @@ function useSel_tags(pool) {
 function useSel_suspendedCount(pool) {
   if(!pool) return {total:0,suspended:0,pct:'0'};
   let t=0,sus=0;
-  pool.lines.forEach(l=>{if(l.marketStatus==='SUSPENDED'){l.selections.forEach(()=>sus++);}l.selections.forEach(s=>{t++;if(s.suspended)sus++;});});
+  pool.lines.forEach(l=>{const lineSusp=l.marketStatus==='SUSPENDED';l.selections.forEach(s=>{t++;if(lineSusp||s.suspended)sus++;});});
   return {total:t,suspended:sus,pct:(t?(sus/t*100):0).toFixed(1)};
 }
 
@@ -129,25 +155,22 @@ function useSel_suspendedCount(pool) {
 //  Has its own form input (max bet override), own effects, own refs.
 //  Form state is managed in the worst possible way.
 // ══════════════════════════════════════════════════════════════════════════
-const SegmentCell = React.memo(({ group, subTiers, onOverride }) => {
+const SegmentCell = React.memo(({ group, subTiers, onOverride, busyMode }) => {
   const ref = useRef(null);
   const inputRef = useRef(null);
   const [w, setW] = useState(0);
   useEffect(() => { if(ref.current) setW(ref.current.offsetWidth); }, []);
 
   // ── Form state: max bet override ──
-  // Controlled input with validation on every keystroke
   const [maxBetInput, setMaxBetInput] = useState('');
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
-  // "Sync" default from selector on mount — overwrites user input (classic bug)
   useEffect(() => {
     setMaxBetInput(String(group.total > 0 ? Math.round(group.total * 1.5) : 10000));
-  }, [group.total]); // group.total is new ref every render → fires every render
+  }, [group.total]);
 
-  // "Validate" on every change — with regex, parseInt, range check
   useEffect(() => {
     if (!isDirty) return;
     const v = parseInt(maxBetInput, 10);
@@ -158,29 +181,42 @@ const SegmentCell = React.memo(({ group, subTiers, onOverride }) => {
     setError('');
   }, [maxBetInput, isDirty]);
 
-  // "Auto-submit" when input loses focus — measures DOM again
   useEffect(() => {
     if (!isFocused && isDirty && !error && inputRef.current) {
       void inputRef.current.getBoundingClientRect();
-      // would dispatch to store here
     }
   }, [isFocused, isDirty, error]);
 
-  // Filter sub-tiers for this group — walks full array each render
   const myTiers = subTiers.filter(st => st.name === group.name);
-  const tierTotal = myTiers.reduce((a,t) => a + t.exposure, 0);
+  
+  if (busyMode) {
+    // Add layout thrashing in sub-components too
+    if (ref.current) void ref.current.scrollHeight;
+  }
 
   return (
-    <div ref={ref} style={{background:'#0d1117',borderRadius:2,padding:'2px 4px',fontSize:7,display:'flex',flexDirection:'column',gap:1,border:`1px solid ${error?'#da363666':'#1c2333'}`,minWidth:58}}>
-      <div style={{display:'flex',justifyContent:'space-between',gap:4}}>
-        <span style={{color:'#484f58',fontWeight:700}}>{group.name.slice(0,3)}</span>
+    <div ref={ref} style={{
+      background: busyMode ? '#f0f0f0' : '#0d1117',
+      borderRadius: busyMode ? 0 : 2,
+      padding: busyMode ? '1px 2px' : '2px 4px',
+      fontSize: 7,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 1,
+      border: busyMode ? '1px solid #999' : `1px solid ${error?'#da363666':'#1c2333'}`,
+      minWidth: busyMode ? 45 : 58,
+      color: busyMode ? '#333' : '#c9d1d9'
+    }}>
+      <div style={{display:'flex',justifyContent:'space-between',gap:2}}>
+        <span style={{fontWeight:700}}>{group.name.slice(0,3)}</span>
         <span style={{color:group.total>=0?'#3fb950':'#f85149',fontWeight:600}}>{(group.total/1000).toFixed(0)}k</span>
       </div>
-      <div style={{display:'flex',gap:2,fontSize:6,color:'#30363d'}}>
-        <span>n:{group.count}</span>
-        <span>L:{(group.liability/1000).toFixed(0)}k</span>
-      </div>
-      {/* Max bet override input — the reason virtualization is impossible */}
+      {!busyMode && (
+        <div style={{display:'flex',gap:2,fontSize:6,color:'#484f58'}}>
+          <span>n:{group.count}</span>
+          <span>L:{(group.liability/1000).toFixed(0)}k</span>
+        </div>
+      )}
       <div style={{display:'flex',gap:2,alignItems:'center'}}>
         <input
           ref={inputRef}
@@ -190,17 +226,20 @@ const SegmentCell = React.memo(({ group, subTiers, onOverride }) => {
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           style={{
-            width: 36, padding: '1px 2px', fontSize: 7,
-            background: error ? '#da363615' : '#161b22',
-            border: `1px solid ${isFocused ? '#58a6ff' : error ? '#da3633' : '#21262d'}`,
-            borderRadius: 2, color: '#c9d1d9', fontFamily: 'inherit',
+            width: busyMode ? 28 : 36, padding: '0 1px', fontSize: 6,
+            background: busyMode ? '#fff' : (error ? '#da363615' : '#161b22'),
+            border: `1px solid ${busyMode ? '#999' : (isFocused ? '#58a6ff' : error ? '#da3633' : '#21262d')}`,
+            borderRadius: busyMode ? 0 : 2, color: busyMode ? '#000' : '#c9d1d9', fontFamily: 'inherit',
             outline: 'none',
           }}
         />
-        {error && <span style={{color:'#f85149',fontSize:6}}>!</span>}
-        {isDirty && !error && <span style={{color:'#3fb950',fontSize:6}}>*</span>}
       </div>
-      {myTiers.map(t => (
+      {busyMode && myTiers.slice(0,1).map(t => (
+        <div key={t.tier} style={{fontSize:5,color:'#666',textAlign:'right'}}>
+          {t.tier}: {(t.exposure/1000).toFixed(0)}k
+        </div>
+      ))}
+      {!busyMode && myTiers.map(t => (
         <div key={t.tier} style={{display:'flex',justifyContent:'space-between',fontSize:6,color:'#21262d'}}>
           <span>{t.tier}</span>
           <span style={{color:t.exposure>=0?'#238636':'#da3633'}}>{(t.exposure/1000).toFixed(0)}k</span>
@@ -210,15 +249,52 @@ const SegmentCell = React.memo(({ group, subTiers, onOverride }) => {
   );
 });
 
+// ── BUSY MODE EXTRA COMPONENTS ──
+
+const AuditLog = ({ id }) => (
+  <div style={{fontSize:5,color:'#666',background:'#fff',padding:1,borderTop:'1px solid #ddd'}}>
+    {Array.from({length:3}).map((_,i) => (
+      <div key={i}>[{new Date().toLocaleTimeString()}] OP_CHANGE_SETTLE:{id.slice(0,4)}</div>
+    ))}
+  </div>
+);
+
+const RISK_MATRIX_COLORS = Array.from({length:8}, (_,i) => i % 2 === 0 ? '#f00' : '#0f0');
+const RiskMatrix = () => (
+  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:1,background:'#ccc',padding:1,marginTop:2}}>
+    {RISK_MATRIX_COLORS.map((bg,i) => (
+      <div key={i} style={{width:4,height:4,background:bg}} />
+    ))}
+  </div>
+);
+
+const MarketDepth = () => (
+  <div style={{marginTop:2,border:'1px solid #999',background:'#eee',fontSize:5}}>
+    <div style={{background:'#faa',width:'60%'}}>ASK 1.95</div>
+    <div style={{background:'#afa',width:'40%'}}>BID 1.92</div>
+  </div>
+);
+
+const MetadataPanel = () => (
+  <div style={{fontSize:5,color:'#444',marginTop:2,fontStyle:'italic'}}>
+    Flags: ISO_8824, STRICT_VALIDATION, MANUAL_MODE_ON, CLUSTER_HDC_4
+  </div>
+);
+
 // ══════════════════════════════════════════════════════════════════════════
 //  HeavyCell — maximum weight
-//  8 selectors (all new refs), 9+ useEffects, layout thrashing cascades,
-//  child SegmentCells each with their own form + effects + refs,
-//  plus cell-level form fields (suspend toggle, priority override).
 // ══════════════════════════════════════════════════════════════════════════
-const HeavyCell = React.memo(({ id }) => {
+const HeavyCell = React.memo(({ id, heavyMode, busyMode, tick }) => {
   const num = parseInt(id.split(':')[1], 10);
   const N = 400;
+
+  // ── 500MS ARTIFICIAL LOAD ──
+  if (heavyMode) {
+    const start = performance.now();
+    while (performance.now() < start + 500) {
+      // Burn CPU synchronously
+    }
+  }
 
   // 8 selectors — every one walks nested tree, returns new refs
   const pool = useSel_pool(num % N, N);
@@ -242,32 +318,26 @@ const HeavyCell = React.memo(({ id }) => {
   const [bodyW, setBodyW] = useState(0);
   const [oddsW, setOddsW] = useState(0);
 
-  // ── Cell-level form state ──
-  // Suspend toggle — controlled checkbox with useEffect "sync"
   const [isSuspended, setIsSuspended] = useState(false);
   const [priorityInput, setPriorityInput] = useState('');
   const [prioError, setPrioError] = useState('');
   const [prioFocused, setPrioFocused] = useState(false);
   const prioRef = useRef(null);
 
-  // "Sync" suspended state from selector — overwrites user toggle
   useEffect(() => {
     if (pool) setIsSuspended(parseFloat(susInfo.pct) > 50);
   }, [susInfo.pct, pool]);
 
-  // "Sync" priority from selector
   useEffect(() => {
     if (pool) setPriorityInput(String(pool.priority));
-  }, [pool]); // pool is new ref every render → fires every render
+  }, [pool]);
 
-  // Validate priority on every keystroke
   useEffect(() => {
     const v = parseInt(priorityInput, 10);
     if (isNaN(v) || v < 0 || v > 9) { setPrioError('0-9'); return; }
     setPrioError('');
   }, [priorityInput]);
 
-  // "Auto-save" priority on blur — layout thrash
   useEffect(() => {
     if (!prioFocused && !prioError && prioRef.current) {
       void prioRef.current.getBoundingClientRect();
@@ -279,13 +349,14 @@ const HeavyCell = React.memo(({ id }) => {
   useEffect(() => { if(hRef.current) setHdrH(hRef.current.offsetHeight); }, [dims]);
   useEffect(() => { if(bRef.current) setBodyW(bRef.current.clientWidth); }, [hdrH]);
   useEffect(() => { if(oRef.current) setOddsW(oRef.current.scrollWidth); }, [bodyW]);
-
-  // Effect 5-9: misc waste
-  useEffect(() => { const p=odds.map(o=>({...o,ts:Date.now(),dims:{...dims}})); void p; }, [odds, dims]);
-  useEffect(() => { void JSON.stringify({id,risk,exposure:exposure.length,tags,sus:susInfo}); }, [id,risk,exposure,tags,susInfo]);
-  useEffect(() => { const sorted=[...history].sort((a,b)=>a.ts-b.ts); void sorted; }, [history]);
-  useEffect(() => { if(cRef.current){const r=cRef.current.getBoundingClientRect();void(r.top+r.left);} }, [oddsW]);
-  useEffect(() => { if(fRef.current) void fRef.current.offsetHeight; }, []);
+  
+  // Extra thrashing if busyMode
+  useEffect(() => {
+    if (busyMode && cRef.current) {
+        void cRef.current.offsetHeight;
+        void cRef.current.scrollTop;
+    }
+  }, [busyMode, oddsW]);
 
   const hue = (num*47)%360;
   const topOdds = odds.slice(0,6);
@@ -296,21 +367,35 @@ const HeavyCell = React.memo(({ id }) => {
   if(!pool) return null;
 
   return (
-    <div ref={cRef} style={{width:175,minHeight:185,margin:3,borderRadius:6,background:'#161b22',border:`1px solid ${isSuspended?'#da363666':risk.worst<-80000?'#da363633':'#21262d'}`,padding:'5px 7px',fontSize:10,color:'#c9d1d9',display:'flex',flexDirection:'column',gap:2,animation:'cellPop .2s ease both',overflow:'hidden',opacity:isSuspended?.6:1}}>
+    <div ref={cRef} style={{
+      width: 175,
+      minHeight: busyMode ? 280 : 185,
+      margin: 3,
+      borderRadius: busyMode ? 0 : 6,
+      background: busyMode ? '#ccc' : '#161b22',
+      border: busyMode ? '2px solid #555' : `1px solid ${isSuspended?'#da363666':risk.worst<-80000?'#da363633':'#21262d'}`,
+      padding: '5px 7px',
+      fontSize: 10,
+      color: busyMode ? '#000' : '#c9d1d9',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 2,
+      animation: 'cellPop .2s ease both',
+      overflow: 'hidden',
+      opacity: isSuspended ? .6 : 1
+    }}>
       {/* Header */}
-      <div ref={hRef} style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid #21262d',paddingBottom:3}}>
+      <div ref={hRef} style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:busyMode?'2px solid #555':'1px solid #21262d',paddingBottom:3}}>
         <div style={{display:'flex',gap:3,alignItems:'center'}}>
-          {/* Suspend toggle */}
           <input
             type="checkbox"
             checked={isSuspended}
             onChange={e => setIsSuspended(e.target.checked)}
             style={{width:8,height:8,accentColor:'#da3633',cursor:'pointer'}}
           />
-          <span style={{fontWeight:700,fontSize:8,color:`hsl(${hue},55%,60%)`,letterSpacing:.5,textDecoration:isSuspended?'line-through':'none'}}>#{num} {pool.betType}</span>
+          <span style={{fontWeight:700,fontSize:8,color:busyMode?'#000':`hsl(${hue},55%,60%)`,letterSpacing:.5,textDecoration:isSuspended?'line-through':'none'}}>#{num} {pool.betType}</span>
         </div>
         <div style={{display:'flex',gap:3,alignItems:'center'}}>
-          {/* Priority input */}
           <input
             ref={prioRef}
             type="text"
@@ -320,67 +405,67 @@ const HeavyCell = React.memo(({ id }) => {
             onBlur={() => setPrioFocused(false)}
             style={{
               width:14,padding:'0 2px',fontSize:7,textAlign:'center',
-              background:prioError?'#da363615':'#0d1117',
-              border:`1px solid ${prioFocused?'#58a6ff':prioError?'#da3633':'#21262d'}`,
-              borderRadius:2,color:'#c9d1d9',fontFamily:'inherit',outline:'none',
+              background:busyMode?'#fff':(prioError?'#da363615':'#0d1117'),
+              border:`1px solid ${busyMode?'#555':(prioFocused?'#58a6ff':prioError?'#da3633':'#21262d')}`,
+              borderRadius:busyMode?0:2,color:busyMode?'#000':'#c9d1d9',fontFamily:'inherit',outline:'none',
             }}
           />
           {parseFloat(susInfo.pct)>0 && <span style={{fontSize:6,color:'#f85149',fontWeight:700}}>{susInfo.pct}%S</span>}
-          <span style={{fontSize:7,color:'#484f58'}}>{pool.lines.length}L·{risk.count}S</span>
         </div>
       </div>
+
+      {busyMode && <div style={{background: '#ff0', color: '#000', fontSize: 6, fontWeight: 700, textAlign: 'center', animation: 'blink 1s infinite'}}>⚠️ HIGH LOAD ACTIVE ⚠️</div>}
 
       {/* Tags */}
       {tagKeys.length>0 && (
         <div style={{display:'flex',gap:2,flexWrap:'wrap'}}>
-          {tagKeys.slice(0,4).map(t=>(
-            <span key={t} style={{fontSize:6,padding:'0 3px',borderRadius:2,background:'#f0883e15',color:'#f0883e',fontWeight:600}}>{t.slice(0,4)} {tags[t]}</span>
+          {tagKeys.slice(0,busyMode?8:4).map(t=>(
+            <span key={t} style={{fontSize:6,padding:'0 3px',borderRadius:busyMode?0:2,background:busyMode?'#555':'#f0883e15',color:busyMode?'#fff':'#f0883e',fontWeight:600}}>{t.slice(0,4)}</span>
           ))}
         </div>
       )}
 
+      {/* BUSY MODE EXTRAS */}
+      {busyMode && (
+        <>
+          <RiskMatrix />
+          <MarketDepth />
+        </>
+      )}
+
       {/* Odds row */}
       <div ref={oRef} style={{display:'flex',gap:2,flexWrap:'wrap'}}>
-        {topOdds.map(o=>(
+        {(busyMode?odds.slice(0,12):topOdds).map(o=>(
           <div key={o.id} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:0}}>
-            <span style={{fontSize:10,fontWeight:700,padding:'1px 3px',borderRadius:2,background:o.isSusp?'#da363633':o.isShort?'#f0883e22':'#23863622',color:o.isSusp?'#f85149':o.isShort?'#f0883e':'#3fb950',textDecoration:o.isSusp?'line-through':'none'}}>{o.display}</span>
-            <span style={{fontSize:6,color:parseFloat(o.drift)>0?'#3fb950':parseFloat(o.drift)<0?'#f85149':'#484f58'}}>{o.drift>0?'+':''}{o.drift}%</span>
+            <span style={{fontSize: busyMode?8:10,fontWeight:700,padding:'1px 3px',borderRadius:busyMode?0:2,background:busyMode?'#fff':(o.isSusp?'#da363633':o.isShort?'#f0883e22':'#23863622'),color:busyMode?'#000':(o.isSusp?'#f85149':o.isShort?'#f0883e':'#3fb950'),border:busyMode?'1px solid #999':'none'}}>{o.display}</span>
           </div>
         ))}
       </div>
 
       {/* Exposure bar */}
       <div style={{display:'flex',alignItems:'center',gap:3}}>
-        <div style={{flex:1,height:3,background:'#0d1117',borderRadius:2,overflow:'hidden'}}>
-          <div style={{width:`${Math.min(100,Math.abs(netExp)/2000)}%`,height:'100%',borderRadius:2,background:isPos?'#238636':'#da3633'}} />
+        <div style={{flex:1,height:busyMode?6:3,background:busyMode?'#888':'#0d1117',borderRadius:busyMode?0:2,overflow:'hidden'}}>
+          <div style={{width:`${Math.min(100,Math.abs(netExp)/2000)}%`,height:'100%',background:isPos?'#238636':'#da3633'}} />
         </div>
-        <span style={{fontSize:8,fontWeight:600,minWidth:38,textAlign:'right',color:isPos?'#3fb950':'#f85149'}}>{isPos?'+':''}{(netExp/1000).toFixed(1)}k</span>
+        <span style={{fontSize:8,fontWeight:600,minWidth:38,textAlign:'right',color:busyMode?'#000':(isPos?'#3fb950':'#f85149')}}>{(netExp/1000).toFixed(1)}k</span>
       </div>
 
-      {/* Risk strip */}
-      <div style={{display:'flex',justifyContent:'space-between',fontSize:7,color:'#484f58',padding:'1px 0'}}>
-        <span>W<b style={{color:rc}}>{(risk.worst/1000).toFixed(0)}k</b></span>
-        <span>B<b style={{color:'#3fb950'}}>{(risk.best/1000).toFixed(0)}k</b></span>
-        <span>N<b style={{color:risk.net>=0?'#8b949e':'#f85149'}}>{(risk.net/1000).toFixed(0)}k</b></span>
-        <span>μ<b style={{color:'#8b949e'}}>{(risk.avg/1000).toFixed(0)}k</b></span>
-      </div>
-
-      {/* History sparkline */}
-      <div style={{display:'flex',gap:1,alignItems:'flex-end',height:12}}>
-        {history.slice(0,10).map((h,i)=>(
-          <div key={i} style={{width:3,background:h.position>=0?'#23863688':'#da363688',borderRadius:1,height:Math.max(2,Math.min(12,Math.abs(h.position)/10000))}} />
-        ))}
-      </div>
-
-      {/* Client group segments — each has its own form input + effects */}
+      {/* Client group segments */}
       <div ref={bRef} style={{display:'flex',flexWrap:'wrap',gap:2,marginTop:1}}>
-        {exposure.map(g=>(
-          <SegmentCell key={g.name} group={g} subTiers={subTiers} onOverride={() => {}} />
+        {(busyMode?exposure.slice(0,10):exposure).map(g=>(
+          <SegmentCell key={g.name} group={g} subTiers={subTiers} onOverride={() => {}} busyMode={busyMode} />
         ))}
       </div>
+
+      {busyMode && (
+        <>
+          <MetadataPanel />
+          <AuditLog id={id} />
+        </>
+      )}
 
       {/* Footer */}
-      <div ref={fRef} style={{fontSize:6,color:'#21262d',marginTop:'auto',display:'flex',justifyContent:'space-between'}}>
+      <div ref={fRef} style={{fontSize:6,color:busyMode?'#444':'#21262d',marginTop:'auto',display:'flex',justifyContent:'space-between'}}>
         <span>v{pool.metadata.version}</span>
         <span>{dims.w>0?`${Math.round(dims.w)}×${Math.round(dims.h)}`:''}</span>
       </div>
@@ -392,7 +477,7 @@ const SkeletonCell = React.memo(() => (
   <div style={{width:175,height:185,margin:3,borderRadius:6,background:'#12161f',animation:'pulse 1.2s ease-in-out infinite',border:'1px solid #1c2333'}} />
 ));
 
-function StandardTest({ ids, onComplete }) {
+function StandardTest({ ids, heavyMode, busyMode, tick, onComplete }) {
   const reported = useRef(false);
   const startRef = useRef(performance.now());
 
@@ -403,19 +488,18 @@ function StandardTest({ ids, onComplete }) {
         onComplete(performance.now() - startRef.current);
       });
     }
-  });
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start' }}>
-      {ids.map(id => <HeavyCell key={id} id={id} />)}
+      {ids.map(id => <HeavyCell key={id} id={id} heavyMode={heavyMode} busyMode={busyMode} tick={tick} />)}
     </div>
   );
 }
 
-function BatchTest({ ids, initialBatch, onProgress, onComplete }) {
+function BatchTest({ ids, initialBatch, heavyMode, busyMode, tick, onProgress, onComplete }) {
   const mounted = useBatchMount(ids, { initialBatch });
 
-  // Ref-relay for parent callbacks — prevents effect dep churn
   const onProgressRef = useRef(onProgress);
   onProgressRef.current = onProgress;
   const onCompleteRef = useRef(onComplete);
@@ -434,13 +518,13 @@ function BatchTest({ ids, initialBatch, onProgress, onComplete }) {
       completed.current = true;
       onCompleteRef.current(performance.now() - startRef.current);
     }
-  }, [mounted, ids.length]);
+  }, [mounted.size, ids.length]);
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start' }}>
       {ids.map(id =>
         mounted.has(id)
-          ? <HeavyCell key={id} id={id} />
+          ? <HeavyCell key={id} id={id} heavyMode={heavyMode} busyMode={busyMode} tick={tick} />
           : <SkeletonCell key={id} />
       )}
     </div>
@@ -460,11 +544,30 @@ export default function App() {
   const [batchProgress, setBatchProgress] = useState(0);
   const [debugInfo, setDebugInfo] = useState(null);
 
+  // New heavy options
+  const [heavyMode, setHeavyMode] = useState(false);
+  const [liveUpdates, setLiveUpdates] = useState(false);
+  const [busyMode, setBusyMode] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  // Live update engine
+  useEffect(() => {
+    if (!liveUpdates) return;
+    const timer = setInterval(() => {
+      _updateStore(count, 0.2); // 20% churn
+      setTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [liveUpdates, count]);
+
   const ids = useMemo(
     () => Array.from({ length: count }, (_, i) => `item:${i}`),
     [count]
   );
-
+  
+  // Fake dependency tracker for busyMode/liveUpdates updates
+  // In a real app we'd use a store listener. Here we just re-render everything
+  // when the tick increment or mode toggles.
   const handleComplete = useCallback((mode, duration) => {
     setResults(prev => ({ ...prev, [mode]: duration }));
   }, []);
@@ -504,19 +607,24 @@ export default function App() {
         @keyframes cellPop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         @keyframes pulse { 0%,100% { opacity: .4; } 50% { opacity: .12; } }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
       `}</style>
 
-      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e6edf3', margin: '0 0 6px' }}>
               useBatchMount
               <span style={{ color: '#484f58', fontWeight: 400 }}> — perf lab</span>
             </h1>
-            <p style={{ fontSize: 12, color: '#484f58', maxWidth: 520, lineHeight: 1.6 }}>
-              Standard React mounts all {count} components in one synchronous frame.
-              useBatchMount spreads them across idle callbacks. Watch the spinner —
-              if it freezes, the main thread is blocked.
+            <p style={{ fontSize: 12, color: '#484f58', maxWidth: 620, lineHeight: 1.6 }}>
+              Testing batched mounting vs synchronous mounting.
+              <br/>
+              <b>Heavy Mode</b>: Blocks thread for 500ms per component.
+              <br/>
+              <b>Busy UI</b>: Extra sub-components & legacy layout thrashing.
+              <br/>
+              <b>Live Updates</b>: 20% data churn every second.
             </p>
           </div>
           <div style={{ textAlign: 'center', flexShrink: 0 }}>
@@ -529,26 +637,45 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
           <div style={{ background: '#161b22', border: '1px solid #21262d', borderRadius: 8, padding: 16 }}>
             <div style={{ fontSize: 10, color: '#484f58', letterSpacing: 1, marginBottom: 10 }}>PARAMETERS</div>
-            <div style={{ display: 'flex', gap: 16 }}>
-              <label style={{ fontSize: 12 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 11 }}>
                 <span style={{ color: '#484f58' }}>count</span>
                 <input type="number" value={count} min={10} max={5000} step={100}
                   onChange={e => setCount(Math.max(10, +e.target.value))} disabled={!!isRunning}
-                  style={{ display: 'block', width: 90, marginTop: 4, background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', padding: '4px 8px', fontSize: 13, fontFamily: 'inherit' }}
+                  style={{ display: 'block', width: 70, marginTop: 4, background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', padding: '4px 6px', fontSize: 12, fontFamily: 'inherit' }}
                 />
               </label>
-              <label style={{ fontSize: 12 }}>
+              <label style={{ fontSize: 11 }}>
                 <span style={{ color: '#484f58' }}>initialBatch</span>
                 <input type="number" value={initialBatch} min={1} max={200} step={5}
                   onChange={e => setInitialBatch(Math.max(1, +e.target.value))} disabled={!!isRunning}
-                  style={{ display: 'block', width: 90, marginTop: 4, background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', padding: '4px 8px', fontSize: 13, fontFamily: 'inherit' }}
+                  style={{ display: 'block', width: 70, marginTop: 4, background: '#0d1117', border: '1px solid #30363d', borderRadius: 4, color: '#c9d1d9', padding: '4px 6px', fontSize: 12, fontFamily: 'inherit' }}
                 />
               </label>
             </div>
           </div>
+
+          <div style={{ background: '#161b22', border: '1px solid #21262d', borderRadius: 8, padding: 16 }}>
+            <div style={{ fontSize: 10, color: '#484f58', letterSpacing: 1, marginBottom: 10 }}>STRESS OPTIONS</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={heavyMode} onChange={e => setHeavyMode(e.target.checked)} disabled={!!isRunning} />
+                Heavy Render (500ms)
+              </label>
+              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={busyMode} onChange={e => setBusyMode(e.target.checked)} disabled={!!isRunning} />
+                Legacy Clutter (Busy UI)
+              </label>
+              <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={liveUpdates} onChange={e => setLiveUpdates(e.target.checked)} />
+                Live Updates (20%)
+              </label>
+            </div>
+          </div>
+
           <div style={{ background: '#161b22', border: '1px solid #21262d', borderRadius: 8, padding: 16 }}>
             <div style={{ fontSize: 10, color: '#484f58', letterSpacing: 1, marginBottom: 10 }}>ACTIONS</div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -588,8 +715,8 @@ export default function App() {
 
         <div style={{ background: '#0d1117', border: '1px solid #21262d', borderRadius: 8, padding: 10, minHeight: 320, display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start' }}>
           {!activeTest && <div style={{ margin: 'auto', color: '#30363d', fontSize: 13 }}>press a button to start</div>}
-          {activeTest === 'standard' && <StandardTest key={`std-${runKey}`} ids={ids} onComplete={(d) => handleComplete('standard', d)} />}
-          {activeTest === 'batch' && <BatchTest key={`batch-${runKey}`} ids={ids} initialBatch={initialBatch} onProgress={handleProgress} onComplete={(d) => handleComplete('batch', d)} />}
+          {activeTest === 'standard' && <StandardTest key={`std-${runKey}`} ids={ids} heavyMode={heavyMode} busyMode={busyMode} tick={tick} onComplete={(d) => handleComplete('standard', d)} />}
+          {activeTest === 'batch' && <BatchTest key={`batch-${runKey}`} ids={ids} initialBatch={initialBatch} heavyMode={heavyMode} busyMode={busyMode} tick={tick} onProgress={handleProgress} onComplete={(d) => handleComplete('batch', d)} />}
         </div>
       </div>
     </div>
