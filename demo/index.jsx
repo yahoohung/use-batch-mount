@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
-import { useBatchMount, __batchMountDebug, SAMPLE_SIZE } from '../src/useBatchMount.js';
+import { useBatchMount, batchMountDebug } from '../src/useBatchMount.js';
 
 // ══════════════════════════════════════════════════════════════════════════
 //  DEMO COMPONENTS
@@ -288,12 +288,12 @@ const HeavyCell = React.memo(({ id, heavyMode, busyMode, tick }) => {
   const num = parseInt(id.split(':')[1], 10);
   const N = 400;
 
-  // ── 500MS ARTIFICIAL LOAD ──
+  // ── ARTIFICIAL RENDER LOAD ──
+  // Burns ~2ms of CPU per cell so the idle budget limits how many mount per tick,
+  // making batched progress visible. 500ms was too extreme (400 × 500ms ≈ 3 min).
   if (heavyMode) {
     const start = performance.now();
-    while (performance.now() < start + 500) {
-      // Burn CPU synchronously
-    }
+    while (performance.now() < start + 2) {}
   }
 
   // 8 selectors — every one walks nested tree, returns new refs
@@ -498,7 +498,7 @@ function StandardTest({ ids, heavyMode, busyMode, tick, onComplete }) {
 }
 
 function BatchTest({ ids, initialBatch, heavyMode, busyMode, tick, onProgress, onComplete }) {
-  const mounted = useBatchMount(ids, { initialBatch });
+  const { mountedSet: mounted } = useBatchMount(ids, { initialBatch });
 
   const onProgressRef = useRef(onProgress);
   onProgressRef.current = onProgress;
@@ -574,11 +574,11 @@ export default function App() {
 
   const handleProgress = useCallback((n) => {
     setBatchProgress(n);
-    setDebugInfo(__batchMountDebug.inspect());
+    setDebugInfo(batchMountDebug.inspect());
   }, []);
 
   const runTest = (mode) => {
-    __batchMountDebug.resetAdaptive();
+    batchMountDebug.resetAdaptive();
     setActiveTest(null);
     setBatchProgress(0);
     setDebugInfo(null);
@@ -695,7 +695,7 @@ export default function App() {
           <Stat label="STANDARD" value={results.standard != null ? `${(results.standard / 1000).toFixed(2)}s` : '—'} color="#da3633" />
           <Stat label="BATCHED" value={results.batch != null ? `${(results.batch / 1000).toFixed(2)}s` : '—'} color="#238636" />
           <Stat label="PROGRESS"
-            value={activeTest === 'batch' && results.batch == null ? `${batchProgress}/${count} (${pct}%)` : activeTest === 'standard' && results.standard == null ? 'rendering...' : '—'}
+            value={activeTest === 'batch' ? `${batchProgress}/${count} (${pct}%)` : activeTest === 'standard' && results.standard == null ? 'rendering...' : '—'}
             color="#58a6ff" />
         </div>
 
@@ -703,7 +703,7 @@ export default function App() {
           <div style={{ background: '#161b22', border: '1px solid #21262d', borderRadius: 8, padding: '10px 16px', marginBottom: 14, fontSize: 11, color: '#484f58', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
             <span>pending: <b style={{ color: '#c9d1d9' }}>{debugInfo.pending}</b></span>
             <span>threshold: <b style={{ color: '#c9d1d9' }}>{debugInfo.adaptedThreshold}ms</b></span>
-            <span>warmup: <b style={{ color: debugInfo.warmupComplete ? '#3fb950' : '#d29922' }}>{debugInfo.warmupComplete ? 'done' : `${debugInfo.samplesCollected}/${SAMPLE_SIZE}`}</b></span>
+            <span>warmup: <b style={{ color: debugInfo.samplesCollected >= 20 ? '#3fb950' : '#d29922' }}>{debugInfo.samplesCollected >= 20 ? 'done' : `${debugInfo.samplesCollected}/20`}</b></span>
           </div>
         )}
 
@@ -734,6 +734,8 @@ function Stat({ label, value, color }) {
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
-  const root = ReactDOM.createRoot(rootElement);
-  root.render(<App />);
+  if (!rootElement._reactRoot) {
+    rootElement._reactRoot = ReactDOM.createRoot(rootElement);
+  }
+  rootElement._reactRoot.render(<App />);
 }

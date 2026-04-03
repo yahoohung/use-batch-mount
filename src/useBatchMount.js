@@ -40,7 +40,7 @@ const rIC =
 //               per tick, regardless of how many IDs were mounted.
 //
 //  Adaptive idle threshold
-//    For the first SAMPLE_SIZE ticks the threshold is fixed at WARMUP_MS.
+//    For the first 20 ticks the threshold is fixed at WARMUP_MS.
 //    After that it becomes: average(post-mount timeRemaining) × IDLE_RATIO.
 //    The sample is taken after mounting, not before. This matters because
 //    React's commit work (useSelector, derived state) runs after mount and
@@ -52,13 +52,16 @@ const rIC =
 //    IDs are shared across all instances. Each ID must belong to exactly
 //    one { onMount, notify } pair. Use a namespace prefix to avoid
 //    collisions, e.g. "zone:HDC-L0" or "sector:123-0-1".
+//
+//  Cross-root limitation
+//    This scheduler is a module singleton. If the page has more than one
+//    React root (multiple ReactDOM.createRoot calls), all roots share the
+//    same queue and idle budget. Mounting in one root consumes time that
+//    would otherwise be available to another. There is no per-root priority.
 // ══════════════════════════════════════════════════════════════════════════
 
 /** Idle threshold used during the warmup period (ms). */
 const WARMUP_MS = 4
-
-/** Number of post-mount idle samples to collect before the threshold adapts. */
-export const SAMPLE_SIZE = 20
 
 /**
  * The adaptive threshold is set to this fraction of the average post-mount
@@ -91,8 +94,12 @@ const FORCE_TIMEOUT_MS = 10000
 const _q = []
 let _head = 0   // index of the next entry to process
 
-/** Fast lookup to skip duplicate enqueues. Kept in sync with _q at all times. */
-const _cbMap = new Map() // id → { onMount, notify }
+/**
+ * Fast lookup to skip duplicate enqueues. Kept in sync with _q at all times.
+ * Stores a boolean sentinel (true) — only .has() and .delete() are ever used.
+ * The value is never read back.
+ */
+const _cbMap = new Map() // id → true
 
 /** Set to the rIC return value while a callback is pending; null otherwise. */
 let _icId = null
@@ -108,9 +115,9 @@ let _deferredOnce = false
 // A fixed-size circular buffer keeps inserts at O(1).
 // A running sum keeps the average at O(1) — no reduce() needed.
 
-const _samples = new Array(SAMPLE_SIZE).fill(0)
+const _samples = new Array(20).fill(0)
 let _sIdx = 0          // next write position in the circular buffer
-let _sCnt = 0          // total samples written, capped at SAMPLE_SIZE
+let _sCnt = 0          // total samples written, capped at 20
 let _sSum = 0          // sum of all values currently in the buffer
 let _adapted = WARMUP_MS  // threshold currently in use
 let _fixed = 0          // when > 0, this value is used instead of _adapted
@@ -126,10 +133,10 @@ function _recordSample(ms) {
     _sSum -= _samples[_sIdx]   // remove the value about to be overwritten
     _samples[_sIdx] = ms
     _sSum += ms
-    _sIdx = (_sIdx + 1) % SAMPLE_SIZE
-    if (_sCnt < SAMPLE_SIZE) _sCnt++
-    if (_sCnt >= SAMPLE_SIZE) {
-        _adapted = Math.max(WARMUP_MS, (_sSum / SAMPLE_SIZE) * IDLE_RATIO)
+    _sIdx = (_sIdx + 1) % 20
+    if (_sCnt < 20) _sCnt++
+    if (_sCnt >= 20) {
+        _adapted = Math.max(WARMUP_MS, (_sSum / 20) * IDLE_RATIO)
     }
 }
 
@@ -143,14 +150,15 @@ function _threshold() {
 }
 
 /**
- * Sets or clears the fixed threshold override.
- * When ms > 0, locks the threshold to that value and disables adaptation.
- * When ms === 0, clears the override and hands control back to the adaptive
- * algorithm. Called from the diff effect each time `ids` changes.
+ * Locks the threshold to a fixed value. Called from the diff effect each
+ * time `ids` changes when the caller passes minIdleMs > 0. The call is
+ * idempotent when the value has not changed. Keeping this function separate
+ * from _enqueue ensures no instance accidentally mutates the global
+ * threshold as a side-effect of enqueueing.
  * @param {number} ms
  */
 function _setMinIdleMs(ms) {
-    _fixed = ms > 0 ? ms : 0
+    if (ms > 0) _fixed = ms
 }
 
 // ── Core flush loop ────────────────────────────────────────────────────────
@@ -214,9 +222,12 @@ function _flush() {
             }
         }
 
-        // Sample idle time after mounting, not before. Post-mount time is lower
-        // because React's commit work runs between here and the next frame.
-        _recordSample(deadline.timeRemaining())
+        // Only sample genuine idle ticks. A forced tick reports timeRemaining() = 0,
+        // which does not reflect real idle capacity. Recording it would unfairly
+        // depress the adaptive threshold. Genuine idle ticks will restore it.
+        if (!deadline.didTimeout) {
+            _recordSample(deadline.timeRemaining())
+        }
 
         // Fire each instance's notify once. This triggers one re-render per
         // instance per tick regardless of how many IDs were mounted this tick.
@@ -247,7 +258,7 @@ function _flush() {
 function _enqueue(ids, onMount, notify) {
     for (const id of ids) {
         if (_cbMap.has(id)) continue
-        _cbMap.set(id, { onMount, notify })
+        _cbMap.set(id, true)             // sentinel — only .has() and .delete() are ever called
         _q.push({ id, onMount, notify })
     }
     _flush()
@@ -277,14 +288,25 @@ function _dequeue(ids) {
     _q.length = w
     _head = 0
 
+    // If the queue is now empty, clear _deferredOnce. Without this, a forced
+    // tick that set _deferredOnce = true before the queue drained would leave
+    // the flag stale. The next batch of IDs enqueued would then skip their
+    // first defer and go straight to the starvation guard on a forced tick,
+    // causing an unnecessary mount in a busy frame.
+    if (w === 0) _deferredOnce = false
+
     if (_head < _q.length && !_icId) _flush()
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 //  DEBUG API
 //
-//  Not a stable public API. Use in development and tests only.
-//  Do not depend on it in production code.
+//  For development and testing only. Do not import in production code.
+//
+//  HMR note: all adaptive-threshold state (sample buffer, adapted threshold,
+//  sample count) resets on every Hot Module Replacement reload because the
+//  module re-executes from scratch. After each code change, wait for
+//  20 genuine idle ticks before reading adaptedThreshold.
 // ══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -292,13 +314,12 @@ function _dequeue(ids) {
  * @property {number}  pending           - IDs in the queue not yet mounted.
  * @property {number}  adaptedThreshold  - Adaptive idle threshold in use (ms).
  * @property {number}  fixedMinIdleMs    - Fixed override; 0 means adaptive is active.
- * @property {number}  samplesCollected  - Post-mount idle samples recorded so far.
- * @property {boolean} warmupComplete    - True once SAMPLE_SIZE samples have been collected.
+ * @property {number}  samplesCollected  - Post-mount idle samples recorded so far (max 20).
  * @property {number}  runningSumMs      - Sum of all values in the sample buffer (ms).
  * @property {boolean} deferredOnce      - True if the last forced tick was deferred; next forced tick will mount.
  */
 
-export const __batchMountDebug = {
+export const batchMountDebug = {
     /**
      * Returns a snapshot of the current scheduler state.
      * Use this to tune initialBatch and minIdleMs during development.
@@ -310,7 +331,6 @@ export const __batchMountDebug = {
             adaptedThreshold: +_adapted.toFixed(2),
             fixedMinIdleMs: _fixed,
             samplesCollected: _sCnt,
-            warmupComplete: _sCnt >= SAMPLE_SIZE,
             runningSumMs: +_sSum.toFixed(2),
             deferredOnce: _deferredOnce,
         }
@@ -340,12 +360,26 @@ export const __batchMountDebug = {
  * spikes and main-thread blocking on initial render. All hook instances
  * share the module-level scheduler above.
  *
- * Returns a Set of IDs that are currently allowed to render their real
- * component. IDs not yet in the set should render a lightweight skeleton.
- * Child components have no knowledge of this mechanism.
+ * Returns an object with two fields:
+ *   - mountedSet  — the set of IDs currently allowed to render their real
+ *                   component. IDs not yet in the set should render a
+ *                   lightweight skeleton. Child components have no knowledge
+ *                   of this mechanism.
+ *   - isComplete  — true once every ID in the list has been mounted.
+ *                   Use this to show a loading indicator or unblock actions
+ *                   that require all content to be present.
  *
  * **Add** — new IDs are queued and mounted the next time the browser is idle.
  * **Remove** — removed IDs are unmounted immediately without queuing.
+ *
+ * ⚠️  Do not use mountedSet in a dependency array. Its object reference
+ *     never changes — mutations happen in place and are invisible to React's
+ *     dependency comparison. Use mountedSet directly inside the render
+ *     function, where bump()-triggered re-renders will pick up the changes.
+ *
+ * ⚠️  On a fast machine with long idle windows, many IDs can mount in a
+ *     single tick, causing a visible "pop-in" wave. If this is noticeable,
+ *     raise minIdleMs to reduce the number of IDs mounted per tick.
  *
  * @param {string[]} ids
  *   The full list of IDs to mount. Must be referentially stable — wrap with
@@ -359,19 +393,25 @@ export const __batchMountDebug = {
  *   the initial viewport.
  * @param {number}  [options.minIdleMs=0]
  *   Locks the idle threshold to this value (ms) and disables adaptation.
- *   Raise this if heavy selectors or derived state cause jank after mount.
+ *   Raise this if heavy selectors or derived state cause jank after mount,
+ *   or to limit the number of IDs mounted per tick on fast machines.
  *   0 leaves the adaptive algorithm in control.
  *
- * @returns {Set<string>} The set of IDs currently allowed to render.
+ * @returns {{ mountedSet: ReadonlySet<string>, isComplete: boolean }}
  *
  * @example
  * const zoneIds = useMemo(() => zones.map(z => `zone:${z.id}`), [zones])
- * const mountedSet = useBatchMount(zoneIds, { initialBatch: 5 })
+ * const { mountedSet, isComplete } = useBatchMount(zoneIds, { initialBatch: 5 })
  *
- * return zoneIds.map(id =>
- *   mountedSet.has(id)
- *     ? <MarketZone key={id} id={id} />
- *     : <MarketZoneSkeleton key={id} />
+ * return (
+ *   <>
+ *     {!isComplete && <LoadingBar />}
+ *     {zoneIds.map(id =>
+ *       mountedSet.has(id)
+ *         ? <MarketZone key={id} id={id} />
+ *         : <MarketZoneSkeleton key={id} />
+ *     )}
+ *   </>
  * )
  */
 export function useBatchMount(ids, {
@@ -382,14 +422,16 @@ export function useBatchMount(ids, {
     // ── Config ref ──────────────────────────────────────────────────────────
     // Updated synchronously during render — not inside an effect — so that
     // callbacks and effects always read the latest values without needing to
-    // list them as effect dependencies.
+    // list them as effect dependencies. Properties are assigned individually
+    // to avoid allocating a new object on every render.
     const configRef = useRef({ initialBatch, minIdleMs })
-    configRef.current = { initialBatch, minIdleMs }
+    configRef.current.initialBatch = initialBatch
+    configRef.current.minIdleMs = minIdleMs
 
     // ── Instance state ──────────────────────────────────────────────────────
     // Stored in a ref so that mutations do not trigger renders on their own.
     // Re-renders are scheduled explicitly through bump() when needed.
-    const s = useRef({
+    const instanceRef = useRef({
         mounted: new Set(),  // IDs currently allowed to render
         prevSet: new Set(),  // full ID list from the last effect run, used to diff
         ready: false,      // true after the first effect run
@@ -409,15 +451,15 @@ export function useBatchMount(ids, {
 
     const onMountRef = useRef(null)
     onMountRef.current = (id) => {
-        if (!s.current.alive) return  // hook unmounted between enqueue and execution
-        s.current.mounted.add(id)
+        if (!instanceRef.current.alive) return  // hook unmounted between enqueue and execution
+        instanceRef.current.mounted.add(id)
         // No bump() here — notify() fires once after all IDs in this tick are
         // added, which batches the re-render to one per tick per instance.
     }
 
     const notifyRef = useRef(null)
     notifyRef.current = () => {
-        if (!s.current.alive) return
+        if (!instanceRef.current.alive) return
         bump(n => n + 1)
     }
 
@@ -432,13 +474,21 @@ export function useBatchMount(ids, {
     //     parent render triggers this effect repeatedly, causing empty diffs
     //     and unnecessary scheduler calls.
     useEffect(() => {
-        const state = s.current
+        const state = instanceRef.current
         const { initialBatch: ib, minIdleMs: ms } = configRef.current
         const nextSet = new Set(ids)
 
-        // Set or clear the fixed threshold here (in an effect), not during
-        // render, to keep the render phase free of module-level side-effects.
-        _setMinIdleMs(ms)
+        // Restore the alive flag. The cleanup effect sets it to false on both
+        // real unmount and React 18 StrictMode's intentional cleanup pass.
+        // When StrictMode remounts this effect, alive must be true so scheduler
+        // callbacks can run again. This is safe to always set here because this
+        // effect body only runs on mount or when ids changes — never during a
+        // real unmount, which only triggers the cleanup function.
+        state.alive = true
+
+        // Set the fixed threshold here (in an effect), not during render, to
+        // keep the render phase free of module-level side-effects.
+        if (ms > 0) _setMinIdleMs(ms)
 
         if (!state.ready) {
             // First run: mount the first ib IDs synchronously so the user sees
@@ -452,6 +502,15 @@ export function useBatchMount(ids, {
             state.prevSet = nextSet
             bump(n => n + 1)
             return
+        }
+
+        // Re-enqueue IDs that were pending but removed during a StrictMode cleanup.
+        // state.prevSet holds every ID from the last run; state.mounted holds only
+        // those already processed. The difference is what was lost. During normal
+        // operation this filter always produces an empty array.
+        const requeue = [...state.prevSet].filter(id => !state.mounted.has(id))
+        if (requeue.length) {
+            _enqueue(requeue, stableOnMount.current, stableNotify.current)
         }
 
         // Incremental diff. Both passes are O(n) and use Set.has() for O(1)
@@ -483,26 +542,21 @@ export function useBatchMount(ids, {
         // function. Under React 18 StrictMode an effect is mounted, torn down,
         // then remounted; capturing here means the cleanup always refers to the
         // same object regardless of when it runs.
-        const state = s.current
-
-        // Reset alive on every (re)mount. StrictMode tears down and remounts
-        // effects in development; without this, alive stays false after the
-        // first teardown and all subsequent onMount callbacks short-circuit.
-        state.alive = true
-
+        const state = instanceRef.current
         return () => {
             state.alive = false
             // Only dequeue IDs that are still waiting in the scheduler. IDs
             // already in state.mounted have been processed and are not queued.
             const pending = [...state.prevSet].filter(id => !state.mounted.has(id))
             if (pending.length) _dequeue(pending)
-            // Reset instance state so the diff effect's first-run path fires
-            // again on remount (handles StrictMode double-invoke in development).
-            state.ready = false
-            state.mounted.clear()
-            state.prevSet.clear()
         }
     }, [])
 
-    return s.current.mounted
+    // isComplete is true once every ID in the current list has been mounted.
+    // It becomes false again immediately if new IDs are added (diff path enqueues
+    // them) and returns to true once those IDs finish mounting.
+    const { mounted, prevSet, ready } = instanceRef.current
+    const isComplete = ready && mounted.size >= prevSet.size
+
+    return { mountedSet: mounted, isComplete }
 }
